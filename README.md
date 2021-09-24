@@ -2,7 +2,7 @@
 
 This repo contains an example leaderless key-value store based on:
 
-- [Rendezvous Hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) to efficiently shard keys
+- [Rendezvous Hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) and [MurmurHash](https://en.wikipedia.org/wiki/MurmurHash) to efficiently shard keys
 - [Quorum Consistency](https://code.likeagirl.io/distributed-computing-quorum-consistency-in-replication-96e64f7b5c6) to tradeoff good consistency vs tolerating node failures
 - [Quorum Clocks](http://rystsov.info/2018/10/01/tso.html) to logically order the data
 

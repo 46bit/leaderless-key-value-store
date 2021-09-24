@@ -1,4 +1,4 @@
-package rendezvous_hashing
+package leaderless_key_value_store
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/46bit/distributed_systems/rendezvous_hashing/api"
+	"github.com/46bit/leaderless-key-value-store/api"
 	"github.com/spaolacci/murmur3"
 	"google.golang.org/grpc"
 )

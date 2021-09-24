@@ -13,8 +13,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 
-	. "github.com/46bit/distributed_systems/rendezvous_hashing"
-	"github.com/46bit/distributed_systems/rendezvous_hashing/api"
+	. "github.com/46bit/leaderless-key-value-store"
+	"github.com/46bit/leaderless-key-value-store/api"
 )
 
 func main() {

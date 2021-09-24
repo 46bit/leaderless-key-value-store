@@ -1,4 +1,4 @@
-package rendezvous_hashing
+package leaderless_key_value_store
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
-	"github.com/46bit/distributed_systems/rendezvous_hashing/api"
+	"github.com/46bit/leaderless-key-value-store/api"
 )
 
 type Entry struct {

@@ -1,4 +1,4 @@
-package rendezvous_hashing
+package leaderless_key_value_store
 
 import (
 	"fmt"

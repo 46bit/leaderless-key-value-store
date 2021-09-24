@@ -1,4 +1,4 @@
-package rendezvous_hashing
+package leaderless_key_value_store
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/46bit/distributed_systems/rendezvous_hashing/api"
+	"github.com/46bit/leaderless-key-value-store/api"
 )
 
 // Based on http://rystsov.info/2018/10/01/tso.html

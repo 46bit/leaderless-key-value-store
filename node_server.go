@@ -1,11 +1,11 @@
-package rendezvous_hashing
+package leaderless_key_value_store
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/46bit/distributed_systems/rendezvous_hashing/api"
+	"github.com/46bit/leaderless-key-value-store/api"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
