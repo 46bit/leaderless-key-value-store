@@ -16,7 +16,7 @@ A 5-node cluster can accept 1krps of 10KB writes with minimal errors. This is wi
 
 This is not intended as a production commercial project. It is merely for learning. There are numerous `FIXME` comments throughout the codebase. Many suggest performance improvements but others deal with rare errorcases.
 
-This does not implement data re-replication. Nodes that have been offline and missed some writes do not get that missing data synced to them. Similarly new nodes do not get existing data. This could be added.
+This does not implement data re-replication. Nodes that have been offline and missed some writes do not get that missing data synced to them. Similarly new nodes do not get existing data. This could be added using a [Dynamo-style Anti-Entropy process](https://en.wikipedia.org/wiki/Dynamo_(storage_system)#Techniques).
 
 ## Notes
 
