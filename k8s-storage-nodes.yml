@@ -10,8 +10,8 @@ data:
     storage_node:
       bind_address: :8080
       bind_metrics_address: :8081
-      clock_epoch_file_path: /tmp/storage_node_clock_epoch
-      badger_db_folder: /tmp/storage_node_badgerdb
+      clock_epoch_file_path: /mnt/data/storage_node_clock_epoch
+      badger_db_folder: /mnt/data/storage_node_badgerdb
 ...
 
 ---
@@ -24,7 +24,7 @@ spec:
     matchLabels:
       app: leaderless-kv-store-storage-nodes
   serviceName: leaderless-kv-store-storage-nodes
-  replicas: 3
+  replicas: 6
   template:
     metadata:
       labels:
@@ -39,15 +39,49 @@ spec:
         - name: BIND_ADDRESS
           value: :8080
         - name: STORAGE_NODE_CONFIG_PATH
-          value: /mnt/storage-nodes-config.yml
+          value: /mnt/config/storage-nodes-config.yml
         command: [ "/app/bin/k8s-storage-node-startup.sh"]
         volumeMounts:
         - name: leaderless-kv-store-storage-nodes-config
-          mountPath: /mnt
+          mountPath: /mnt/config
+        - name: leaderless-kv-store-storage-data
+          mountPath: /mnt/data
       volumes:
-        - name: leaderless-kv-store-storage-nodes-config
-          configMap:
-            name: leaderless-kv-store-storage-nodes-config
+      - name: leaderless-kv-store-storage-nodes-config
+        configMap:
+          name: leaderless-kv-store-storage-nodes-config
+      - name: leaderless-kv-store-storage-data
+        persistentVolumeClaim:
+          claimName: leaderless-kv-store-storage-data
+      initContainers:
+      - name: do-block-storage-permission-fix
+        image: busybox
+        command: ["/bin/chmod","-R","777", "/mnt/data"]
+        volumeMounts:
+        - name: leaderless-kv-store-storage-data
+          mountPath: /mnt/data
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              topologyKey: "kubernetes.io/hostname"
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - leaderless-kv-store-storage-nodes
+  volumeClaimTemplates:
+  - metadata:
+      name: leaderless-kv-store-storage-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 25Gi
+      storageClassName: do-block-storage
 
 ---
 apiVersion: v1
