@@ -1,0 +1,13 @@
+---
+coordinator_node:
+  rendezvous_hashing_seed: 0
+  replication_level: 3
+  bind_address: :8080
+  storage_node_ids:
+    - 1
+    - 2
+    - 3
+  static_service_discovery:
+    1: :8081
+    2: :8082
+    3: :8083

@@ -1,0 +1,7 @@
+---
+storage_node:
+  id: 3
+  bind_address: :8083
+  bind_metrics_address: :8093
+  clock_epoch_file_path: /tmp/storage_node_3_clock_epoch
+  badger_db_folder: /tmp/storage_node_3_badgerdb
