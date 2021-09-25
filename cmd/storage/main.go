@@ -18,39 +18,33 @@ import (
 )
 
 func main() {
-	nodeConfig, err := LoadNodeConfig(os.Args[1])
-	if err != nil {
-		log.Fatal(err)
-	}
-	clusterConfig, err := LoadClusterConfig(os.Args[2])
+	storageNodeConfig, err := LoadStorageNodeConfig(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// FIXME: Support persistent disk locations in config
-	storage, err := NewStorage(nodeConfig.BadgerDbFolder)
+	storage, err := NewStorage(storageNodeConfig.BadgerDbFolder)
 	if err != nil {
 		log.Fatal(fmt.Errorf("error initialising db: %w", err))
 	}
-	if nodeConfig.LocalMetricsAddress == "" {
-		log.Println("Not starting metrics server because LocalMetricsAddress not configured")
+	if storageNodeConfig.BindMetricsAddress == "" {
+		log.Println("Not starting metrics server because BindMetricsAddress not configured")
 	} else {
 		SetupBadgerStorageMetrics()
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
 			// FIXME: Stop using fatal, everywhere. Shutdown badger gracefully!
-			log.Fatal(http.ListenAndServe(nodeConfig.LocalMetricsAddress, nil))
+			log.Fatal(http.ListenAndServe(storageNodeConfig.BindMetricsAddress, nil))
 		}()
 	}
 
-	clockServer, err := NewClockServer(nodeConfig.ClockEpochFilePath)
+	clockServer, err := NewClockServer(storageNodeConfig.ClockEpochFilePath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	cluster := NewCluster(clusterConfig)
-	nodeServer := NewNodeServer(nodeConfig.Id, storage)
-	clusterServer := NewClusterServer(cluster)
+	nodeServer := NewNodeServer(storageNodeConfig.Id, storage)
 
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(64<<20),
@@ -60,7 +54,6 @@ func main() {
 	)
 	api.RegisterClockServer(grpcServer, clockServer)
 	api.RegisterNodeServer(grpcServer, nodeServer)
-	api.RegisterClusterServer(grpcServer, clusterServer)
 	grpc_prometheus.Register(grpcServer)
 
 	exitSignals := make(chan os.Signal, 1)
@@ -71,7 +64,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	c, err := net.Listen("tcp", nodeConfig.LocalAddress)
+	c, err := net.Listen("tcp", storageNodeConfig.BindAddress)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -3,60 +3,74 @@ package leaderless_key_value_store
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
+	"time"
 
-	"github.com/spaolacci/murmur3"
 	"gopkg.in/yaml.v2"
 )
 
-type NodeConfig struct {
-	Id                  string `yaml:"id"`
-	LocalAddress        string `yaml:"local_address"`
-	LocalMetricsAddress string `yaml:"local_metrics_address"`
-	ClockEpochFilePath 	string `yaml:"clock_epoch_file_path"`
-	BadgerDbFolder      string `yaml:"badger_db_folder"`
+type StorageNodeConfig struct {
+	Id                 string `yaml:"id"`
+	BindAddress        string `yaml:"bind_address"`
+	BindMetricsAddress string `yaml:"bind_metrics_address"`
+	ClockEpochFilePath string `yaml:"clock_epoch_file_path"`
+	BadgerDbFolder     string `yaml:"badger_db_folder"`
 }
 
-func LoadNodeConfig(path string) (*NodeConfig, error) {
-	var nestedNodeConfig struct {
-		Node NodeConfig `yaml:"node"`
+func LoadStorageNodeConfig(path string) (*StorageNodeConfig, error) {
+	var nestedStorageNodeConfig struct {
+		StorageNode StorageNodeConfig `yaml:"storage_node"`
 	}
 	yamlBytes, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("error reading node config file: %w", err)
+		return nil, fmt.Errorf("error reading storage node config file: %w", err)
 	}
-	if err = yaml.Unmarshal(yamlBytes, &nestedNodeConfig); err != nil {
-		return nil, fmt.Errorf("error deserialising node config file: %w", err)
+	if err = yaml.Unmarshal(yamlBytes, &nestedStorageNodeConfig); err != nil {
+		return nil, fmt.Errorf("error deserialising storage node config file: %w", err)
 	}
-	return &nestedNodeConfig.Node, nil
+
+	bindAddress := os.Getenv("BIND_ADDRESS")
+	if bindAddress != "" {
+		nestedStorageNodeConfig.StorageNode.BindAddress = bindAddress
+	}
+
+	return &nestedStorageNodeConfig.StorageNode, nil
 }
 
-type ClusterConfig struct {
-	Seed         uint32                      `yaml:"seed"`
-	ReplicaCount int                         `yaml:"replica_count"`
-	Nodes        map[string]*NodeDescription `yaml:"nodes"`
+type CoordinatorConfig struct {
+	RendezvousHashingSeed uint32 `yaml:"rendezvous_hashing_seed"`
+	ReplicationLevel      int    `yaml:"replication_level"`
+
+	BindAddress string `yaml:"bind_address"`
+
+	StorageNodeIds []string `yaml:"storage_node_ids"`
+	// Map from storage node IDs to "hostname:port"
+	StaticServiceDiscovery map[string]string          `yaml:"static_service_discovery"`
+	DnsServiceDiscovery    *DnsServiceDiscoveryConfig `yaml:"dns_service_discovery"`
 }
 
-type NodeDescription struct {
-	ID            string
-	Hash          uint32
-	RemoteAddress string `yaml:"remote_address"`
+type DnsServiceDiscoveryConfig struct {
+	StorageNodeDomain string        `yaml:"storage_node_domain"`
+	StorageNodePort   int16         `yaml:"storage_node_port"`
+	UpdateInterval    time.Duration `yaml:"update_interval"`
 }
 
-func LoadClusterConfig(path string) (*ClusterConfig, error) {
-	var nestedClusterConfig struct {
-		Cluster ClusterConfig `yaml:"cluster"`
+func LoadCoordinatorConfig(path string) (*CoordinatorConfig, error) {
+	var nestedCoordinatorConfig struct {
+		CoordinatorNode CoordinatorConfig `yaml:"coordinator_node"`
 	}
 	yamlBytes, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("error reading cluster config file: %w", err)
+		return nil, fmt.Errorf("error reading coordinator config file: %w", err)
 	}
-	if err = yaml.Unmarshal(yamlBytes, &nestedClusterConfig); err != nil {
-		return nil, fmt.Errorf("error deserialising cluster config file: %w", err)
+	if err = yaml.Unmarshal(yamlBytes, &nestedCoordinatorConfig); err != nil {
+		return nil, fmt.Errorf("error deserialising coordinator config file: %w", err)
 	}
 
-	for id, node := range nestedClusterConfig.Cluster.Nodes {
-		node.ID = id
-		node.Hash = murmur3.Sum32WithSeed([]byte(id), nestedClusterConfig.Cluster.Seed)
+	bindAddress := os.Getenv("BIND_ADDRESS")
+	if bindAddress != "" {
+		nestedCoordinatorConfig.CoordinatorNode.BindAddress = bindAddress
 	}
-	return &nestedClusterConfig.Cluster, nil
+
+	return &nestedCoordinatorConfig.CoordinatorNode, nil
 }

@@ -1,8 +1,8 @@
 package leaderless_key_value_store
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 
 	"github.com/46bit/leaderless-key-value-store/api"
 )
@@ -10,17 +10,17 @@ import (
 type ClusterServer struct {
 	api.UnimplementedClusterServer
 
-	cluster *Cluster
+	clusterDesc *ClusterDescription
 }
 
 var _ api.ClusterServer = (*ClusterServer)(nil)
 
-func NewClusterServer(cluster *Cluster) *ClusterServer {
-	return &ClusterServer{cluster: cluster}
+func NewClusterServer(clusterDesc *ClusterDescription) *ClusterServer {
+	return &ClusterServer{clusterDesc: clusterDesc}
 }
 
 func (s *ClusterServer) Get(ctx context.Context, req *api.GetRequest) (*api.GetResponse, error) {
-	entry, err := Read(req.Key, s.cluster)
+	entry, err := Read(req.Key, s.clusterDesc)
 	if err != nil {
 		fmt.Println(fmt.Errorf("error getting value from cluster: %w", err))
 	}
@@ -41,7 +41,7 @@ func (s *ClusterServer) Set(ctx context.Context, req *api.SetRequest) (*api.SetR
 		Key:   req.Entry.Key,
 		Value: req.Entry.Value,
 	}
-	err := Write(entry, s.cluster)
+	err := Write(entry, s.clusterDesc)
 	if err != nil {
 		fmt.Println(fmt.Errorf("error setting value in cluster: %w", err))
 	}

@@ -12,33 +12,68 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Cluster struct {
+type ClusterDescription struct {
 	sync.Mutex
-	ClusterConfig
+
+	ReplicationLevel      int
+	RendezvousHashingSeed uint32
+	StorageNodes          map[string]*StorageNodeDescription
 }
 
-func NewCluster(clusterConfig *ClusterConfig) *Cluster {
-	return &Cluster{
-		ClusterConfig: *clusterConfig,
+func NewClusterDescription(c *CoordinatorConfig) *ClusterDescription {
+	d := &ClusterDescription{
+		ReplicationLevel:      c.ReplicationLevel,
+		RendezvousHashingSeed: c.RendezvousHashingSeed,
+		StorageNodes:          map[string]*StorageNodeDescription{},
 	}
+	for _, storageNodeId := range c.StorageNodeIds {
+		d.StorageNodes[storageNodeId] = NewStorageNodeDescription(storageNodeId, c.RendezvousHashingSeed)
+	}
+	if c.StaticServiceDiscovery != nil {
+		for storageNodeId, address := range c.StaticServiceDiscovery {
+			if _, ok := d.StorageNodes[storageNodeId]; !ok {
+				continue
+			}
+			d.StorageNodes[storageNodeId].Address = &address
+		}
+	}
+	return d
+}
+
+type StorageNodeDescription struct {
+	Id      string
+	Hash    uint32
+	Address *string
+}
+
+func NewStorageNodeDescription(id string, rendezvousHashingSeed uint32) *StorageNodeDescription {
+	return &StorageNodeDescription{
+		Id:      id,
+		Hash:    murmur3.Sum32WithSeed([]byte(id), rendezvousHashingSeed),
+		Address: nil,
+	}
+}
+
+func (s *StorageNodeDescription) Found() bool {
+	return s.Address != nil && *s.Address != ""
 }
 
 type FoundNode struct {
 	CombinedHash uint64
-	Node         *NodeDescription
+	Node         *StorageNodeDescription
 }
 
-func (c *Cluster) FindNodesForKey(key string) []FoundNode {
+func (c *ClusterDescription) FindNodesForKey(key string) []FoundNode {
 	c.Lock()
 	defer c.Unlock()
 
 	keyBytes := []byte(key)
 
 	// FIXME: Optimise? Avoid allocations, etc
-	numberOfNodes := len(c.Nodes)
-	combinedHashToNode := make(map[uint64]*NodeDescription, numberOfNodes)
+	numberOfNodes := len(c.StorageNodes)
+	combinedHashToNode := make(map[uint64]*StorageNodeDescription, numberOfNodes)
 	combinedHashes := []uint64{}
-	for _, node := range c.Nodes {
+	for _, node := range c.StorageNodes {
 		combinedHash := murmur3.Sum64WithSeed(keyBytes, node.Hash)
 		combinedHashToNode[combinedHash] = node
 		combinedHashes = append(combinedHashes, combinedHash)
@@ -46,8 +81,8 @@ func (c *Cluster) FindNodesForKey(key string) []FoundNode {
 	// Sort combined hashes into descending order
 	sort.Slice(combinedHashes, func(i, j int) bool { return combinedHashes[i] > combinedHashes[j] })
 
-	bestNodes := make([]FoundNode, c.ReplicaCount)
-	for i := 0; i < c.ReplicaCount; i++ {
+	bestNodes := make([]FoundNode, c.ReplicationLevel)
+	for i := 0; i < c.ReplicationLevel; i++ {
 		combinedHash := combinedHashes[i]
 		bestNodes[i] = FoundNode{
 			CombinedHash: combinedHash,
@@ -57,7 +92,7 @@ func (c *Cluster) FindNodesForKey(key string) []FoundNode {
 	return bestNodes
 }
 
-func Read(key string, cluster *Cluster) (*Entry, error) {
+func Read(key string, cluster *ClusterDescription) (*Entry, error) {
 	chosenReplicas := cluster.FindNodesForKey(key)
 	if len(chosenReplicas) == 0 {
 		return nil, fmt.Errorf("no nodes found for key")
@@ -67,15 +102,18 @@ func Read(key string, cluster *Cluster) (*Entry, error) {
 		return nil, err
 	}
 	return &Entry{
-		Key: clockedEntry.Entry.Key,
+		Key:   clockedEntry.Entry.Key,
 		Value: clockedEntry.Entry.Value,
 	}, nil
 }
 
-func readEntryFromNode(ctx context.Context, key string, node *NodeDescription) (*api.ClockedEntry, error) {
+func readEntryFromNode(ctx context.Context, key string, node *StorageNodeDescription) (*api.ClockedEntry, error) {
+	if node.Address == nil {
+		return nil, fmt.Errorf("no address known for node")
+	}
 	conn, err := grpc.DialContext(
 		ctx,
-		node.RemoteAddress,
+		*node.Address,
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
@@ -92,7 +130,7 @@ func readEntryFromNode(ctx context.Context, key string, node *NodeDescription) (
 	return r.ClockedEntry, nil
 }
 
-func Write(entry Entry, cluster *Cluster) error {
+func Write(entry Entry, cluster *ClusterDescription) error {
 	chosenReplicas := cluster.FindNodesForKey(entry.Key)
 	if len(chosenReplicas) == 0 {
 		return fmt.Errorf("no nodes found to accept key")
@@ -108,7 +146,7 @@ func Write(entry Entry, cluster *Cluster) error {
 
 	clockedEntry := &api.ClockedEntry{
 		Entry: &api.Entry{
-			Key: entry.Key,
+			Key:   entry.Key,
 			Value: entry.Value,
 		},
 		Clock: quorateClock,
@@ -116,10 +154,13 @@ func Write(entry Entry, cluster *Cluster) error {
 	return setQuorateValue(clockedEntry, chosenReplicas)
 }
 
-func writeEntryToNode(ctx context.Context, clockedEntry *api.ClockedEntry, node *NodeDescription) error {
+func writeEntryToNode(ctx context.Context, clockedEntry *api.ClockedEntry, node *StorageNodeDescription) error {
+	if node.Address == nil {
+		return fmt.Errorf("no address known for node")
+	}
 	conn, err := grpc.DialContext(
 		ctx,
-		node.RemoteAddress,
+		*node.Address,
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
@@ -135,10 +176,13 @@ func writeEntryToNode(ctx context.Context, clockedEntry *api.ClockedEntry, node 
 	return err
 }
 
-func getClockFromNode(ctx context.Context, node *NodeDescription) (*api.ClockGetResponse, error) {
+func getClockFromNode(ctx context.Context, node *StorageNodeDescription) (*api.ClockGetResponse, error) {
+	if node.Address == nil {
+		return nil, fmt.Errorf("no address known for node")
+	}
 	conn, err := grpc.DialContext(
 		ctx,
-		node.RemoteAddress,
+		*node.Address,
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
@@ -151,10 +195,13 @@ func getClockFromNode(ctx context.Context, node *NodeDescription) (*api.ClockGet
 	return api.NewClockClient(conn).Get(ctx, &api.ClockGetRequest{})
 }
 
-func setClockOnNode(ctx context.Context, clockValue *api.ClockValue, node *NodeDescription) error {
+func setClockOnNode(ctx context.Context, clockValue *api.ClockValue, node *StorageNodeDescription) error {
+	if node.Address == nil {
+		return fmt.Errorf("no address known for node")
+	}
 	conn, err := grpc.DialContext(
 		ctx,
-		node.RemoteAddress,
+		*node.Address,
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
@@ -171,8 +218,8 @@ func setClockOnNode(ctx context.Context, clockValue *api.ClockValue, node *NodeD
 }
 
 func attemptQuoracy(
-	foundNodes []FoundNode, 
-	action func(*NodeDescription) bool,
+	foundNodes []FoundNode,
+	action func(*StorageNodeDescription) bool,
 ) (bool, int) {
 	success := make(chan bool, 1)
 	for _, foundNode := range foundNodes {
@@ -205,7 +252,7 @@ func attemptQuoracy(
 func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
 	nodeClocks := make(chan *api.ClockValue, len(nodes))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	quorate, succeeded := attemptQuoracy(nodes, func(node *NodeDescription) bool {
+	quorate, succeeded := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		nodeClock, err := getClockFromNode(ctx, node)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning getting clock from node: %w", err))
@@ -240,7 +287,7 @@ func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
 
 func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode) error {
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-	quorate, _ := attemptQuoracy(nodes, func(node *NodeDescription) bool {
+	quorate, _ := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		err := setClockOnNode(ctx, clockValue, node)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning setting clock on node: %w", err))
@@ -257,7 +304,7 @@ func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode) error {
 func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 	nodeEntries := make(chan *api.ClockedEntry, len(nodes))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	quorate, succeeded := attemptQuoracy(nodes, func(node *NodeDescription) bool {
+	quorate, succeeded := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		nodeEntry, err := readEntryFromNode(ctx, key, node)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning getting value from node: %w", err))
@@ -280,8 +327,8 @@ func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 	var newestEntry *api.ClockedEntry
 	for i := 0; i < succeeded; i += 1 {
 		nodeEntry := <-nodeEntries
-		// FIXME: Suggestion in http://rystsov.info/2018/10/01/tso.html to use 
-		// a hash of the current cluster node's ID as a consistent tiebreak for if 
+		// FIXME: Suggestion in http://rystsov.info/2018/10/01/tso.html to use
+		// a hash of the current cluster node's ID as a consistent tiebreak for if
 		// multiple clocked values have the same clock
 		if nodeEntry.Clock.Epoch > maxEpoch {
 			maxEpoch = nodeEntry.Clock.Epoch
@@ -299,7 +346,7 @@ func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 
 func setQuorateValue(clockedEntry *api.ClockedEntry, nodes []FoundNode) error {
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-	quorate, _ := attemptQuoracy(nodes, func(node *NodeDescription) bool {
+	quorate, _ := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		err := writeEntryToNode(ctx, clockedEntry, node)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning setting value on node: %w", err))
