@@ -34,7 +34,8 @@ func NewClusterDescription(c *CoordinatorConfig) *ClusterDescription {
 			if _, ok := d.StorageNodes[storageNodeId]; !ok {
 				continue
 			}
-			d.StorageNodes[storageNodeId].Address = &address
+			addressCopy := address
+			d.StorageNodes[storageNodeId].Address = &addressCopy
 		}
 	}
 	return d

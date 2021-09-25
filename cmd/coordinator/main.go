@@ -17,7 +17,7 @@ import (
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	coordinatorConfig, err := LoadCoordinatorConfig(os.Args[2])
+	coordinatorConfig, err := LoadCoordinatorConfig(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
