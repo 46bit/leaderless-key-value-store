@@ -240,6 +240,7 @@ var Node_ServiceDesc = grpc.ServiceDesc{
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ClusterClient interface {
+	Info(ctx context.Context, in *ClusterInfoRequest, opts ...grpc.CallOption) (*ClusterInfoResponse, error)
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	Set(ctx context.Context, in *SetRequest, opts ...grpc.CallOption) (*SetResponse, error)
 }
@@ -250,6 +251,15 @@ type clusterClient struct {
 
 func NewClusterClient(cc grpc.ClientConnInterface) ClusterClient {
 	return &clusterClient{cc}
+}
+
+func (c *clusterClient) Info(ctx context.Context, in *ClusterInfoRequest, opts ...grpc.CallOption) (*ClusterInfoResponse, error) {
+	out := new(ClusterInfoResponse)
+	err := c.cc.Invoke(ctx, "/api.Cluster/Info", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *clusterClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
@@ -274,6 +284,7 @@ func (c *clusterClient) Set(ctx context.Context, in *SetRequest, opts ...grpc.Ca
 // All implementations must embed UnimplementedClusterServer
 // for forward compatibility
 type ClusterServer interface {
+	Info(context.Context, *ClusterInfoRequest) (*ClusterInfoResponse, error)
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	Set(context.Context, *SetRequest) (*SetResponse, error)
 	mustEmbedUnimplementedClusterServer()
@@ -283,6 +294,9 @@ type ClusterServer interface {
 type UnimplementedClusterServer struct {
 }
 
+func (UnimplementedClusterServer) Info(context.Context, *ClusterInfoRequest) (*ClusterInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+}
 func (UnimplementedClusterServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
@@ -300,6 +314,24 @@ type UnsafeClusterServer interface {
 
 func RegisterClusterServer(s grpc.ServiceRegistrar, srv ClusterServer) {
 	s.RegisterService(&Cluster_ServiceDesc, srv)
+}
+
+func _Cluster_Info_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClusterInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServer).Info(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.Cluster/Info",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServer).Info(ctx, req.(*ClusterInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Cluster_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -345,6 +377,10 @@ var Cluster_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "api.Cluster",
 	HandlerType: (*ClusterServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Info",
+			Handler:    _Cluster_Info_Handler,
+		},
 		{
 			MethodName: "Get",
 			Handler:    _Cluster_Get_Handler,
