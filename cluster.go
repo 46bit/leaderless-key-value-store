@@ -253,6 +253,7 @@ func attemptQuoracy(
 func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
 	nodeClocks := make(chan *api.ClockValue, len(nodes))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	quorate, succeeded := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		nodeClock, err := getClockFromNode(ctx, node)
 		if err != nil {
@@ -262,7 +263,6 @@ func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
 		nodeClocks <- nodeClock.Value
 		return true
 	})
-	cancel()
 	if !quorate {
 		return nil, fmt.Errorf("could not get clock from a majority of replicas")
 	}
@@ -287,7 +287,8 @@ func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
 }
 
 func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode) error {
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	quorate, _ := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		err := setClockOnNode(ctx, clockValue, node)
 		if err != nil {
@@ -305,6 +306,7 @@ func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode) error {
 func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 	nodeEntries := make(chan *api.ClockedEntry, len(nodes))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	quorate, succeeded := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		nodeEntry, err := readEntryFromNode(ctx, key, node)
 		if err != nil {
@@ -318,7 +320,6 @@ func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 		nodeEntries <- nodeEntry
 		return true
 	})
-	cancel()
 	if !quorate {
 		return nil, fmt.Errorf("could not get value from a majority of replicas")
 	}
@@ -346,7 +347,8 @@ func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 }
 
 func setQuorateValue(clockedEntry *api.ClockedEntry, nodes []FoundNode) error {
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	quorate, _ := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
 		err := writeEntryToNode(ctx, clockedEntry, node)
 		if err != nil {

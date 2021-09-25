@@ -2,10 +2,10 @@ package leaderless_key_value_store
 
 import (
 	"context"
-	"sync"
 	"fmt"
-	"strconv"
 	"os"
+	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/46bit/leaderless-key-value-store/api"
@@ -18,7 +18,7 @@ type ClockServer struct {
 	epochPath string
 	// FIXME: Heavily read workload; switch to read-write
 	epochMutex sync.Mutex
-	epoch uint64
+	epoch      uint64
 
 	clock uint64
 }
@@ -32,8 +32,8 @@ func NewClockServer(epochPath string) (*ClockServer, error) {
 	}
 	return &ClockServer{
 		epochPath: epochPath,
-		epoch: epoch,
-		clock: 1,
+		epoch:     epoch,
+		clock:     1,
 	}, nil
 }
 

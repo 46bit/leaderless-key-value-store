@@ -3,8 +3,8 @@ package leaderless_key_value_store
 import (
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
