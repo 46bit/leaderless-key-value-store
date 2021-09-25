@@ -47,7 +47,7 @@ func LoadStorageNodeConfig(path string) (*StorageNodeConfig, error) {
 		storageNodeConfig.ClockEpochFilePath = clockEpochFilePath
 	}
 
-	badgerDbFolder := os.Getenv("BIND_ADDRESS")
+	badgerDbFolder := os.Getenv("BADGERDB_FOLDER")
 	if badgerDbFolder != "" {
 		storageNodeConfig.BadgerDbFolder = badgerDbFolder
 	}
