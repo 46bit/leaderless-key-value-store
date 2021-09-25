@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -29,12 +30,29 @@ func LoadStorageNodeConfig(path string) (*StorageNodeConfig, error) {
 		return nil, fmt.Errorf("error deserialising storage node config file: %w", err)
 	}
 
-	bindAddress := os.Getenv("BIND_ADDRESS")
-	if bindAddress != "" {
-		nestedStorageNodeConfig.StorageNode.BindAddress = bindAddress
+	storageNodeConfig := nestedStorageNodeConfig.StorageNode
+
+	nodeId := os.Getenv("NODE_ID")
+	if nodeId != "" {
+		storageNodeConfig.Id = nodeId
 	}
 
-	return &nestedStorageNodeConfig.StorageNode, nil
+	bindAddress := os.Getenv("BIND_ADDRESS")
+	if bindAddress != "" {
+		storageNodeConfig.BindAddress = bindAddress
+	}
+
+	clockEpochFilePath := os.Getenv("CLOCK_EPOCH_FILE_PATH")
+	if clockEpochFilePath != "" {
+		storageNodeConfig.ClockEpochFilePath = clockEpochFilePath
+	}
+
+	badgerDbFolder := os.Getenv("BIND_ADDRESS")
+	if badgerDbFolder != "" {
+		storageNodeConfig.BadgerDbFolder = badgerDbFolder
+	}
+
+	return &storageNodeConfig, nil
 }
 
 type CoordinatorConfig struct {
@@ -51,7 +69,7 @@ type CoordinatorConfig struct {
 
 type DnsServiceDiscoveryConfig struct {
 	StorageNodeDomain string        `yaml:"storage_node_domain"`
-	StorageNodePort   int16         `yaml:"storage_node_port"`
+	StorageNodePort   int64         `yaml:"storage_node_port"`
 	UpdateInterval    time.Duration `yaml:"update_interval"`
 }
 
@@ -67,10 +85,32 @@ func LoadCoordinatorConfig(path string) (*CoordinatorConfig, error) {
 		return nil, fmt.Errorf("error deserialising coordinator config file: %w", err)
 	}
 
+	coordinatorConfig := nestedCoordinatorConfig.CoordinatorNode
+
 	bindAddress := os.Getenv("BIND_ADDRESS")
 	if bindAddress != "" {
-		nestedCoordinatorConfig.CoordinatorNode.BindAddress = bindAddress
+		coordinatorConfig.BindAddress = bindAddress
 	}
 
-	return &nestedCoordinatorConfig.CoordinatorNode, nil
+	// FIXME: This code needs a major tidyup
+	dnsSDStorageNodeDomain := os.Getenv("DNS_SD_STORAGE_NODE_DOMAIN")
+	if dnsSDStorageNodeDomain != "" {
+		if coordinatorConfig.DnsServiceDiscovery == nil {
+			return nil, fmt.Errorf("cannot specify DNS_SD_STORAGE_NODE_DOMAIN unless update_interval configured in yaml")
+		}
+		coordinatorConfig.DnsServiceDiscovery.StorageNodeDomain = dnsSDStorageNodeDomain
+	}
+	dnsSDStorageNodePort := os.Getenv("DNS_SD_STORAGE_NODE_PORT")
+	if dnsSDStorageNodePort != "" {
+		if coordinatorConfig.DnsServiceDiscovery == nil {
+			return nil, fmt.Errorf("cannot specify DNS_SD_STORAGE_NODE_PORT unless update_interval configured in yaml")
+		}
+		port, err := strconv.ParseInt(dnsSDStorageNodePort, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("DNS_SD_STORAGE_NODE_PORT must be an integer")
+		}
+		coordinatorConfig.DnsServiceDiscovery.StorageNodePort = port
+	}
+
+	return &coordinatorConfig, nil
 }
