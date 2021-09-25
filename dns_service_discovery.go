@@ -39,7 +39,12 @@ func PerformDnsServiceDiscovery(ctx context.Context, config *DnsServiceDiscovery
 
 				clusterDesc.Lock()
 				defer clusterDesc.Unlock()
-				clusterDesc.StorageNodes[health.NodeId].Address = &address
+				storageNode, ok := clusterDesc.StorageNodes[health.NodeId]
+				if !ok {
+					log.Println(fmt.Errorf("got DNS for unknown Storage Node with ID: '%s'", health.NodeId))
+					return
+				}
+				storageNode.Address = &address
 			}()
 		}
 	}

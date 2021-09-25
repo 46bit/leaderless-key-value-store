@@ -1,0 +1,94 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: leaderless-kv-store-coordinators-config
+data:
+  coordinator-config.yml: |
+    ---
+    coordinator_node:
+      rendezvous_hashing_seed: 0
+      replication_level: 3
+      storage_node_ids:
+        - 0
+        - 1
+        - 2
+      dns_service_discovery:
+        update_interval: 10s
+...
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leaderless-kv-store-coordinators
+spec:
+  selector:
+    matchLabels:
+      app: leaderless-kv-store-coordinators
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: leaderless-kv-store-coordinators
+    spec:
+      containers:
+      - name: leaderless-kv-store-coordinator
+        image: ghcr.io/46bit/leaderless-key-value-store:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: BIND_ADDRESS
+          value: :8080
+        - name: DNS_SD_STORAGE_NODE_DOMAIN
+          value: leaderless-kv-store-storage-nodes.default.svc.cluster.local
+        - name: DNS_SD_STORAGE_NODE_PORT
+          value: "8080"
+        command: [ "/app/bin/coordinator", "/mnt/coordinator-config.yml" ]
+        volumeMounts:
+        - name: leaderless-kv-store-coordinators-config
+          mountPath: /mnt
+      volumes:
+        - name: leaderless-kv-store-coordinators-config
+          configMap:
+            name: leaderless-kv-store-coordinators-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leaderless-kv-store-coordinators
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: leaderless-kv-store-coordinators
+...
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: leaderless-kv-store
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+spec:
+  tls:
+    - hosts:
+      - leaderless-kv-store.46bit.cloud
+      secretName: leaderless-kv-store-tls
+  rules:
+  - host: leaderless-kv-store.46bit.cloud
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: leaderless-kv-store-coordinators
+            port:
+              number: 80
+...

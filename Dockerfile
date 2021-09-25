@@ -11,4 +11,5 @@ RUN make build
 FROM alpine:latest AS run
 WORKDIR /app
 COPY --from=build /app/bin /app/bin
+COPY k8s-storage-node-startup.sh /app/bin
 RUN apk add --no-cache gettext

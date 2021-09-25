@@ -1,0 +1,64 @@
+# FIXME: PERSISTENT STORAGE
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: leaderless-kv-store-storage-nodes-config
+data:
+  storage-nodes-config.yml: |
+    ---
+    storage_node:
+      bind_address: :8080
+      bind_metrics_address: :8081
+      clock_epoch_file_path: /tmp/storage_node_clock_epoch
+      badger_db_folder: /tmp/storage_node_badgerdb
+...
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: leaderless-kv-store-storage-nodes
+spec:
+  selector:
+    matchLabels:
+      app: leaderless-kv-store-storage-nodes
+  serviceName: leaderless-kv-store-storage-nodes
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: leaderless-kv-store-storage-nodes
+    spec:
+      containers:
+      - name: leaderless-kv-store-storage-node
+        image: ghcr.io/46bit/leaderless-key-value-store:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: BIND_ADDRESS
+          value: :8080
+        - name: STORAGE_NODE_CONFIG_PATH
+          value: /mnt/storage-nodes-config.yml
+        command: [ "/app/bin/k8s-storage-node-startup.sh"]
+        volumeMounts:
+        - name: leaderless-kv-store-storage-nodes-config
+          mountPath: /mnt
+      volumes:
+        - name: leaderless-kv-store-storage-nodes-config
+          configMap:
+            name: leaderless-kv-store-storage-nodes-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leaderless-kv-store-storage-nodes
+spec:
+  clusterIP: None
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: leaderless-kv-store-storage-nodes
+...
