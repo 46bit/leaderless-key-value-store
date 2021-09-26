@@ -55,6 +55,18 @@ spec:
         - name: leaderless-kv-store-coordinators-config
           configMap:
             name: leaderless-kv-store-coordinators-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              topologyKey: "kubernetes.io/hostname"
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - leaderless-kv-store-coordinators
 
 ---
 apiVersion: v1
