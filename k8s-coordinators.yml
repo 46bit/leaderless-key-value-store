@@ -49,6 +49,8 @@ spec:
           value: leaderless-kv-store-storage-nodes.default.svc.cluster.local
         - name: DNS_SD_STORAGE_NODE_PORT
           value: "8080"
+        - name: GRPC_GO_RETRY
+          value: "on"
         command: [ "/app/bin/coordinator", "/mnt/coordinator-config.yml" ]
         volumeMounts:
         - name: leaderless-kv-store-coordinators-config
