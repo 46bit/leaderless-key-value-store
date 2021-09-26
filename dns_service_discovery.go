@@ -45,6 +45,7 @@ func PerformDnsServiceDiscovery(ctx context.Context, config *DnsServiceDiscovery
 					return
 				}
 				storageNode.Address = &address
+				clusterDesc.ConnManager.Add(address, true)
 			}()
 		}
 	}

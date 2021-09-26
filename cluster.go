@@ -17,7 +17,9 @@ type ClusterDescription struct {
 	ReplicationLevel      int
 	RendezvousHashingSeed uint32
 	StorageNodes          map[string]*StorageNodeDescription
-	ConnManager           *ConnManager
+	// FIXME: Move connmanager off this metadata struct and onto more of a
+	// 'live' state struct.
+	ConnManager *ConnManager
 }
 
 func NewClusterDescription(cfg *CoordinatorConfig, connManager *ConnManager) *ClusterDescription {
@@ -37,7 +39,7 @@ func NewClusterDescription(cfg *CoordinatorConfig, connManager *ConnManager) *Cl
 			}
 			addressCopy := address
 			d.StorageNodes[storageNodeId].Address = &addressCopy
-			d.ConnManager.Add(address)
+			d.ConnManager.Add(address, false)
 		}
 	}
 	return d

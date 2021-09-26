@@ -56,7 +56,14 @@ func NewConnManager(poolSize int, removeUnusedAfter time.Duration) *ConnManager 
 	}
 }
 
-func (m *ConnManager) Add(address string) error {
+func (m *ConnManager) Add(address string, allowRemovalIfUnused bool) error {
+	m.Lock()
+	_, ok := m.Pools[address]
+	if ok {
+		return nil
+	}
+	m.Unlock()
+
 	pool, err := NewRoundRobinConnPool(address, m.PoolSize)
 	if err != nil {
 		return err
@@ -65,7 +72,9 @@ func (m *ConnManager) Add(address string) error {
 	m.Lock()
 	defer m.Unlock()
 	m.Pools[address] = pool
-	m.LastUsed[address] = time.Now()
+	if allowRemovalIfUnused {
+		m.LastUsed[address] = time.Now()
+	}
 	return nil
 }
 

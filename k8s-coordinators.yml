@@ -18,6 +18,8 @@ data:
         - 5
       dns_service_discovery:
         update_interval: 10s
+      remove_unused_connection_pools_after: 5m
+      size_of_connection_pools: 8
 ...
 
 ---
