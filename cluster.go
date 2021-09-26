@@ -9,7 +9,6 @@ import (
 
 	"github.com/46bit/leaderless-key-value-store/api"
 	"github.com/spaolacci/murmur3"
-	"google.golang.org/grpc"
 )
 
 type ClusterDescription struct {
@@ -18,24 +17,27 @@ type ClusterDescription struct {
 	ReplicationLevel      int
 	RendezvousHashingSeed uint32
 	StorageNodes          map[string]*StorageNodeDescription
+	ConnManager           *ConnManager
 }
 
-func NewClusterDescription(c *CoordinatorConfig) *ClusterDescription {
+func NewClusterDescription(cfg *CoordinatorConfig, connManager *ConnManager) *ClusterDescription {
 	d := &ClusterDescription{
-		ReplicationLevel:      c.ReplicationLevel,
-		RendezvousHashingSeed: c.RendezvousHashingSeed,
+		ReplicationLevel:      cfg.ReplicationLevel,
+		RendezvousHashingSeed: cfg.RendezvousHashingSeed,
 		StorageNodes:          map[string]*StorageNodeDescription{},
+		ConnManager:           connManager,
 	}
-	for _, storageNodeId := range c.StorageNodeIds {
-		d.StorageNodes[storageNodeId] = NewStorageNodeDescription(storageNodeId, c.RendezvousHashingSeed)
+	for _, storageNodeId := range cfg.StorageNodeIds {
+		d.StorageNodes[storageNodeId] = NewStorageNodeDescription(storageNodeId, cfg.RendezvousHashingSeed)
 	}
-	if c.StaticServiceDiscovery != nil {
-		for storageNodeId, address := range c.StaticServiceDiscovery {
+	if cfg.StaticServiceDiscovery != nil {
+		for storageNodeId, address := range cfg.StaticServiceDiscovery {
 			if _, ok := d.StorageNodes[storageNodeId]; !ok {
 				continue
 			}
 			addressCopy := address
 			d.StorageNodes[storageNodeId].Address = &addressCopy
+			d.ConnManager.Add(address)
 		}
 	}
 	return d
@@ -98,7 +100,7 @@ func Read(key string, cluster *ClusterDescription) (*Entry, error) {
 	if len(chosenReplicas) == 0 {
 		return nil, fmt.Errorf("no nodes found for key")
 	}
-	clockedEntry, err := getQuorateValue(key, chosenReplicas)
+	clockedEntry, err := getQuorateValue(key, chosenReplicas, cluster.ConnManager)
 	if err != nil {
 		return nil, err
 	}
@@ -108,23 +110,19 @@ func Read(key string, cluster *ClusterDescription) (*Entry, error) {
 	}, nil
 }
 
-func readEntryFromNode(ctx context.Context, key string, node *StorageNodeDescription) (*api.ClockedEntry, error) {
+func readEntryFromNode(ctx context.Context, key string, node *StorageNodeDescription, connManager *ConnManager) (*api.ClockedEntry, error) {
 	if node.Address == nil {
 		return nil, fmt.Errorf("no address known for node")
 	}
-	conn, err := grpc.DialContext(
-		ctx,
-		*node.Address,
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
-		grpc.WithInsecure(),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("did not connect: %w", err)
+	conn, ok := connManager.Get(*node.Address)
+	if !ok {
+		return nil, fmt.Errorf("no connection available to node")
 	}
-	defer conn.Close()
 
 	r, err := api.NewNodeClient(conn).Get(ctx, &api.GetRequest{Key: key})
+	if err != nil {
+		return nil, err
+	}
 	if r == nil {
 		return nil, nil
 	}
@@ -137,11 +135,11 @@ func Write(entry Entry, cluster *ClusterDescription) error {
 		return fmt.Errorf("no nodes found to accept key")
 	}
 
-	quorateClock, err := getQuorateClock(chosenReplicas)
+	quorateClock, err := getQuorateClock(chosenReplicas, cluster.ConnManager)
 	if err != nil {
 		return err
 	}
-	if err = setQuorateClock(quorateClock, chosenReplicas); err != nil {
+	if err = setQuorateClock(quorateClock, chosenReplicas, cluster.ConnManager); err != nil {
 		return err
 	}
 
@@ -152,67 +150,45 @@ func Write(entry Entry, cluster *ClusterDescription) error {
 		},
 		Clock: quorateClock,
 	}
-	return setQuorateValue(clockedEntry, chosenReplicas)
+	return setQuorateValue(clockedEntry, chosenReplicas, cluster.ConnManager)
 }
 
-func writeEntryToNode(ctx context.Context, clockedEntry *api.ClockedEntry, node *StorageNodeDescription) error {
+func writeEntryToNode(ctx context.Context, clockedEntry *api.ClockedEntry, node *StorageNodeDescription, connManager *ConnManager) error {
 	if node.Address == nil {
 		return fmt.Errorf("no address known for node")
 	}
-	conn, err := grpc.DialContext(
-		ctx,
-		*node.Address,
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
-		grpc.WithInsecure(),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return fmt.Errorf("did not connect: %w", err)
+	conn, ok := connManager.Get(*node.Address)
+	if !ok {
+		return fmt.Errorf("no connection available to node")
 	}
-	defer conn.Close()
 
-	_, err = api.NewNodeClient(conn).Set(ctx, &api.NodeSetRequest{
+	_, err := api.NewNodeClient(conn).Set(ctx, &api.NodeSetRequest{
 		ClockedEntry: clockedEntry,
 	})
 	return err
 }
 
-func getClockFromNode(ctx context.Context, node *StorageNodeDescription) (*api.ClockGetResponse, error) {
+func getClockFromNode(ctx context.Context, node *StorageNodeDescription, connManager *ConnManager) (*api.ClockGetResponse, error) {
 	if node.Address == nil {
 		return nil, fmt.Errorf("no address known for node")
 	}
-	conn, err := grpc.DialContext(
-		ctx,
-		*node.Address,
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
-		grpc.WithInsecure(),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("did not connect: %w", err)
+	conn, ok := connManager.Get(*node.Address)
+	if !ok {
+		return nil, fmt.Errorf("no connection available to node")
 	}
-	defer conn.Close()
-
 	return api.NewClockClient(conn).Get(ctx, &api.ClockGetRequest{})
 }
 
-func setClockOnNode(ctx context.Context, clockValue *api.ClockValue, node *StorageNodeDescription) error {
+func setClockOnNode(ctx context.Context, clockValue *api.ClockValue, node *StorageNodeDescription, connManager *ConnManager) error {
 	if node.Address == nil {
 		return fmt.Errorf("no address known for node")
 	}
-	conn, err := grpc.DialContext(
-		ctx,
-		*node.Address,
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
-		grpc.WithInsecure(),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return fmt.Errorf("did not connect: %w", err)
+	conn, ok := connManager.Get(*node.Address)
+	if !ok {
+		return fmt.Errorf("no connection available to node")
 	}
-	defer conn.Close()
 
-	_, err = api.NewClockClient(conn).Set(ctx, &api.ClockSetRequest{
+	_, err := api.NewClockClient(conn).Set(ctx, &api.ClockSetRequest{
 		Value: clockValue,
 	})
 	return err
@@ -250,12 +226,12 @@ func attemptQuoracy(
 	return false, 0
 }
 
-func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
+func getQuorateClock(nodes []FoundNode, connManager *ConnManager) (*api.ClockValue, error) {
 	nodeClocks := make(chan *api.ClockValue, len(nodes))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	quorate, succeeded := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
-		nodeClock, err := getClockFromNode(ctx, node)
+		nodeClock, err := getClockFromNode(ctx, node, connManager)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning getting clock from node: %w", err))
 			return false
@@ -286,11 +262,11 @@ func getQuorateClock(nodes []FoundNode) (*api.ClockValue, error) {
 	}, nil
 }
 
-func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode) error {
+func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode, connManager *ConnManager) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	quorate, _ := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
-		err := setClockOnNode(ctx, clockValue, node)
+		err := setClockOnNode(ctx, clockValue, node, connManager)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning setting clock on node: %w", err))
 			return false
@@ -303,12 +279,12 @@ func setQuorateClock(clockValue *api.ClockValue, nodes []FoundNode) error {
 	return nil
 }
 
-func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
+func getQuorateValue(key string, nodes []FoundNode, connManager *ConnManager) (*api.ClockedEntry, error) {
 	nodeEntries := make(chan *api.ClockedEntry, len(nodes))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	quorate, succeeded := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
-		nodeEntry, err := readEntryFromNode(ctx, key, node)
+		nodeEntry, err := readEntryFromNode(ctx, key, node, connManager)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning getting value from node: %w", err))
 			return false
@@ -346,11 +322,11 @@ func getQuorateValue(key string, nodes []FoundNode) (*api.ClockedEntry, error) {
 	return newestEntry, nil
 }
 
-func setQuorateValue(clockedEntry *api.ClockedEntry, nodes []FoundNode) error {
+func setQuorateValue(clockedEntry *api.ClockedEntry, nodes []FoundNode, connManager *ConnManager) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	quorate, _ := attemptQuoracy(nodes, func(node *StorageNodeDescription) bool {
-		err := writeEntryToNode(ctx, clockedEntry, node)
+		err := writeEntryToNode(ctx, clockedEntry, node, connManager)
 		if err != nil {
 			fmt.Println(fmt.Errorf("warning setting value on node: %w", err))
 			return false

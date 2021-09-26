@@ -26,7 +26,7 @@ func main() {
 	connManager := NewConnManager(coordinatorConfig.SizeOfConnectionPools, coordinatorConfig.RemoveUnusedConnectionPoolsAfter)
 	go connManager.Run(ctx)
 
-	clusterDesc := NewClusterDescription(coordinatorConfig)
+	clusterDesc := NewClusterDescription(coordinatorConfig, connManager)
 	clusterServer := NewClusterServer(clusterDesc)
 
 	if coordinatorConfig.DnsServiceDiscovery != nil {
