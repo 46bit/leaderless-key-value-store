@@ -46,9 +46,7 @@ func main() {
 
 	nodeServer := NewNodeServer(storageNodeConfig.Id, storage)
 
-	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(64<<20),
-		grpc.MaxSendMsgSize(64<<20),
+	grpcServer := NewGrpcServer(
 		grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 		grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
 	)

@@ -59,12 +59,14 @@ type CoordinatorConfig struct {
 	RendezvousHashingSeed uint32 `yaml:"rendezvous_hashing_seed"`
 	ReplicationLevel      int    `yaml:"replication_level"`
 
-	BindAddress string `yaml:"bind_address"`
-
+	BindAddress    string   `yaml:"bind_address"`
 	StorageNodeIds []string `yaml:"storage_node_ids"`
 	// Map from storage node IDs to "hostname:port"
 	StaticServiceDiscovery map[string]string          `yaml:"static_service_discovery"`
 	DnsServiceDiscovery    *DnsServiceDiscoveryConfig `yaml:"dns_service_discovery"`
+
+	SizeOfConnectionPools            int           `yaml:"size_of_connection_pools"`
+	RemoveUnusedConnectionPoolsAfter time.Duration `yaml:"remove_unused_connection_pools_after"`
 }
 
 type DnsServiceDiscoveryConfig struct {
