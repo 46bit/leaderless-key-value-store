@@ -24,15 +24,16 @@ func NewGrpcServer(extraServerOptions ...grpc.ServerOption) *grpc.Server {
 	// 	PermitWithoutStream: true,
 	// 	MinTime:             PING_RATE / 10,
 	// }
-	// keepaliveServerParams := keepalive.ServerParameters{
-	// 	MaxConnectionIdle: 15 * time.Second,
-	// 	Time:              PING_RATE,
-	// 	Timeout:           PING_TIMEOUT,
-	// }
+	keepaliveServerParams := keepalive.ServerParameters{
+		MaxConnectionIdle: 15 * time.Second,
+		Time:              PING_RATE,
+		Timeout:           PING_TIMEOUT,
+	}
 	serverOptions := []grpc.ServerOption{
+		grpc.MaxConcurrentStreams(1024),
 		grpc.MaxRecvMsgSize(MAX_MSG_SIZE),
 		grpc.MaxSendMsgSize(MAX_MSG_SIZE),
-		// grpc.KeepaliveParams(keepaliveServerParams),
+		grpc.KeepaliveParams(keepaliveServerParams),
 		// grpc.KeepaliveEnforcementPolicy(keepaliveEnforcementPolicy),
 	}
 	serverOptions = append(serverOptions, extraServerOptions...)
@@ -154,12 +155,31 @@ func NewRoundRobinConnPool(ctx context.Context, address string, poolSize int) (*
 	}, nil
 }
 
+var retryPolicy = `{
+	"methodConfig": [{
+		"name": [
+			{"service": "api.Cluster"}, 
+			{"service": "api.Node"}, 
+			{"service": "api.Clock"}
+		],
+		"waitForReady": true,
+
+		"retryPolicy": {
+			"MaxAttempts": 3,
+			"InitialBackoff": "0.1s",
+			"MaxBackoff": "2s",
+			"BackoffMultiplier": 4.0,
+			"RetryableStatusCodes": [ "UNAVAILABLE" ]
+		}
+	}]
+}`
+
 func connect(ctx context.Context, address string) (*grpc.ClientConn, error) {
-	keepaliveClientParams := keepalive.ClientParameters{
-		Time:                PING_RATE,
-		Timeout:             PING_TIMEOUT,
-		PermitWithoutStream: true,
-	}
+	// keepaliveClientParams := keepalive.ClientParameters{
+	// 	Time:                PING_RATE,
+	// 	Timeout:             PING_TIMEOUT,
+	// 	PermitWithoutStream: true,
+	// }
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -168,8 +188,13 @@ func connect(ctx context.Context, address string) (*grpc.ClientConn, error) {
 		address,
 		grpc.WithBlock(),
 		grpc.WithInsecure(),
-		grpc.WithKeepaliveParams(keepaliveClientParams),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MAX_MSG_SIZE), grpc.MaxCallSendMsgSize(MAX_MSG_SIZE)),
+		// grpc.WithKeepaliveParams(keepaliveClientParams),
+		grpc.WithDefaultServiceConfig(retryPolicy),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(MAX_MSG_SIZE),
+			grpc.MaxCallSendMsgSize(MAX_MSG_SIZE),
+			grpc.WaitForReady(true),
+		),
 	)
 }
 
