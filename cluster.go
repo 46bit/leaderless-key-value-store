@@ -39,7 +39,7 @@ func NewClusterDescription(cfg *CoordinatorConfig, connManager *ConnManager) *Cl
 			}
 			addressCopy := address
 			d.StorageNodes[storageNodeId].Address = &addressCopy
-			d.ConnManager.Add(address, false)
+			d.ConnManager.Add(context.Background(), address, false)
 		}
 	}
 	return d

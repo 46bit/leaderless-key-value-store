@@ -20,20 +20,20 @@ const (
 )
 
 func NewGrpcServer(extraServerOptions ...grpc.ServerOption) *grpc.Server {
-	keepaliveEnforcementPolicy := keepalive.EnforcementPolicy{
-		PermitWithoutStream: true,
-		MinTime:             PING_RATE / 10,
-	}
-	keepaliveServerParams := keepalive.ServerParameters{
-		MaxConnectionIdle: 15 * time.Second,
-		Time:              PING_RATE,
-		Timeout:           PING_TIMEOUT,
-	}
+	// keepaliveEnforcementPolicy := keepalive.EnforcementPolicy{
+	// 	PermitWithoutStream: true,
+	// 	MinTime:             PING_RATE / 10,
+	// }
+	// keepaliveServerParams := keepalive.ServerParameters{
+	// 	MaxConnectionIdle: 15 * time.Second,
+	// 	Time:              PING_RATE,
+	// 	Timeout:           PING_TIMEOUT,
+	// }
 	serverOptions := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(MAX_MSG_SIZE),
 		grpc.MaxSendMsgSize(MAX_MSG_SIZE),
-		grpc.KeepaliveParams(keepaliveServerParams),
-		grpc.KeepaliveEnforcementPolicy(keepaliveEnforcementPolicy),
+		// grpc.KeepaliveParams(keepaliveServerParams),
+		// grpc.KeepaliveEnforcementPolicy(keepaliveEnforcementPolicy),
 	}
 	serverOptions = append(serverOptions, extraServerOptions...)
 	return grpc.NewServer(serverOptions...)
@@ -48,6 +48,9 @@ type ConnManager struct {
 }
 
 func NewConnManager(poolSize int, removeUnusedAfter time.Duration) *ConnManager {
+	if poolSize < 1 {
+		poolSize = 1
+	}
 	return &ConnManager{
 		PoolSize:          poolSize,
 		RemoveUnusedAfter: removeUnusedAfter,
@@ -56,25 +59,25 @@ func NewConnManager(poolSize int, removeUnusedAfter time.Duration) *ConnManager 
 	}
 }
 
-func (m *ConnManager) Add(address string, allowRemovalIfUnused bool) error {
+func (m *ConnManager) Add(ctx context.Context, address string, allowRemovalIfUnused bool) error {
 	m.Lock()
+	defer m.Unlock()
 	_, ok := m.Pools[address]
 	if ok {
 		return nil
 	}
-	m.Unlock()
 
-	pool, err := NewRoundRobinConnPool(address, m.PoolSize)
+	log.Println("adding managed connections to", address)
+	pool, err := NewRoundRobinConnPool(ctx, address, m.PoolSize)
 	if err != nil {
 		return err
 	}
 
-	m.Lock()
-	defer m.Unlock()
 	m.Pools[address] = pool
 	if allowRemovalIfUnused {
 		m.LastUsed[address] = time.Now()
 	}
+	log.Println("added managed connections to", address)
 	return nil
 }
 
@@ -89,6 +92,9 @@ func (m *ConnManager) Get(address string) (conn grpc.ClientConnInterface, ok boo
 }
 
 func (m *ConnManager) Run(ctx context.Context) {
+	if m.RemoveUnusedAfter == 0 {
+		return
+	}
 	ticker := time.NewTicker(m.RemoveUnusedAfter)
 	for {
 		select {
@@ -108,11 +114,8 @@ func (m *ConnManager) garbageCollect() {
 			continue
 		}
 		pool := m.Pools[address]
-		// FIXME: Find out if closing connections is expensive enough to be worth temporary unlocking
-		m.Unlock()
 		errs := pool.Close()
 		log.Println(fmt.Errorf("ignored errors closing connection pool: %v", errs))
-		m.Lock()
 		delete(m.Pools, address)
 		delete(m.LastUsed, address)
 	}
@@ -134,16 +137,16 @@ type RoundRobinConnPool struct {
 
 var _ (ConnPool) = &RoundRobinConnPool{}
 
-func NewRoundRobinConnPool(address string, poolSize int) (*RoundRobinConnPool, error) {
+func NewRoundRobinConnPool(ctx context.Context, address string, poolSize int) (*RoundRobinConnPool, error) {
+	log.Println("creating round-robin connection pool to", address, "with size", poolSize)
 	conns := make([]*grpc.ClientConn, poolSize)
 	for i := 0; i < poolSize; i += 1 {
-		conn, err := connect(address)
+		conn, err := connect(ctx, address)
 		if err != nil {
 			return nil, err
 		}
 		conns[i] = conn
 	}
-	// FIXME: Connect
 	return &RoundRobinConnPool{
 		Index:       0,
 		Size:        poolSize,
@@ -151,14 +154,14 @@ func NewRoundRobinConnPool(address string, poolSize int) (*RoundRobinConnPool, e
 	}, nil
 }
 
-func connect(address string) (*grpc.ClientConn, error) {
+func connect(ctx context.Context, address string) (*grpc.ClientConn, error) {
 	keepaliveClientParams := keepalive.ClientParameters{
 		Time:                PING_RATE,
 		Timeout:             PING_TIMEOUT,
 		PermitWithoutStream: true,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	return grpc.DialContext(
 		ctx,
